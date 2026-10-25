@@ -1,0 +1,58 @@
+name: 🐞 Сообщить об ошибке
+description: Что-то работает не так, как должно
+title: "Ошибка: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ⚠️ **Не вставляйте сюда ссылки на свои серверы (vless://, vmess:// и т. п.), ссылки подписок, UUID, пароли и ключи** — это откроет доступ к вашему серверу всем. Если они есть в логах, замените их на `***`.
+  - type: textarea
+    id: what
+    attributes:
+      label: Что случилось?
+      placeholder: Например, «После нажатия кнопки подключения появляется ошибка …».
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Как повторить?
+      placeholder: |
+        1. Добавил сервер VLESS REALITY
+        2. Нажал «Подключиться»
+        3. …
+    validations:
+      required: false
+  - type: textarea
+    id: expected
+    attributes:
+      label: Что должно было произойти?
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: Версия Tropa
+    validations:
+      required: false
+  - type: input
+    id: core
+    attributes:
+      label: Версия ядра Xray
+    validations:
+      required: false
+  - type: input
+    id: os
+    attributes:
+      label: Windows
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Логи
+      description: Вкладка «Логи» в программе или файл %LOCALAPPDATA%\Tropa\tropa.log. Уберите из них адреса серверов и ключи.
+      render: text
+    validations:
+      required: false

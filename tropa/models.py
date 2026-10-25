@@ -179,6 +179,9 @@ class Settings:
     log_level: str = "warning"
     test_url: str = "https://www.gstatic.com/generate_204"
     tray_hint_shown: bool = False
+    check_updates: bool = True
+    last_update_check: float = 0.0
+    skipped_version: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

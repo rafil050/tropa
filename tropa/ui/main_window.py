@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import APP_NAME, APP_VERSION, core, winutil
+from .. import APP_NAME, APP_VERSION, core, updates, winutil
 from ..links import looks_like_subscription, parse_many, share_link
 from ..models import PING_FAILED, ROUTING_MODES, Profile, Subscription
 from ..netutil import describe_error, tcp_ping, url_delay
@@ -102,6 +102,7 @@ class MainWindow(QMainWindow):
         self.current_delay: int | None = None
         self._quitting = False
         self._core_version: str | None = None
+        self._new_version: str | None = None
 
         self.setWindowTitle(APP_NAME)
         self.setWindowIcon(QIcon(str(resource_path("icon.svg"))))
@@ -164,6 +165,10 @@ class MainWindow(QMainWindow):
         self.nav_group.button(0).setChecked(True)
         self.nav_group.idClicked.connect(self.stack.setCurrentIndex)
         nav.addStretch(1)
+        idea = _button("Предложить идею", "bolt", "ghost", color=t.MUTED)
+        idea.setToolTip("Откроет на GitHub форму для идеи — разработчик её прочитает")
+        idea.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(updates.idea_url())))
+        nav.addWidget(idea)
         column.addLayout(nav)
         column.addWidget(self.stack, 1)
         root.addWidget(content, 1)
@@ -291,6 +296,22 @@ class MainWindow(QMainWindow):
         self.add_button.setMenu(add_menu)
         header.addWidget(self.add_button)
         layout.addLayout(header)
+
+        self.update_banner = QFrame()
+        self.update_banner.setProperty("kind", "card")
+        self.update_banner.setStyleSheet(f"QFrame {{ border-color: {t.ACCENT}; }}")
+        update_layout = QHBoxLayout(self.update_banner)
+        update_layout.setContentsMargins(14, 10, 10, 10)
+        self.update_text = _label("", wrap=True)
+        update_layout.addWidget(self.update_text, 1)
+        update_later = _button("Не сейчас", kind="ghost")
+        update_later.clicked.connect(self._skip_update)
+        update_layout.addWidget(update_later)
+        update_get = _button("Скачать", "download", "primary")
+        update_get.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(updates.release_page(self._new_version))))
+        update_layout.addWidget(update_get)
+        self.update_banner.hide()
+        layout.addWidget(self.update_banner)
 
         self.core_banner = QFrame()
         self.core_banner.setProperty("kind", "banner")
@@ -680,12 +701,39 @@ class MainWindow(QMainWindow):
             "(лицензия MPL-2.0), которое скачивается с официальной страницы проекта на GitHub. "
             "Tropa не продаёт серверы и не собирает данные — всё хранится на этом компьютере.",
             "muted", wrap=True))
+        about_layout.addSpacing(6)
+        updates_row = QHBoxLayout()
+        updates_text = QVBoxLayout()
+        updates_text.setSpacing(1)
+        updates_text.addWidget(_label("Сообщать о новых версиях Tropa"))
+        updates_text.addWidget(_label("Раз в день проверяет страницу релизов на GitHub", "faint"))
+        updates_row.addLayout(updates_text, 1)
+        self.updates_toggle = Toggle(checked=s.check_updates)
+        self.updates_toggle.toggled.connect(lambda v: self._set_setting("check_updates", v))
+        updates_row.addWidget(self.updates_toggle)
+        about_layout.addLayout(updates_row)
+        about_layout.addSpacing(6)
+        row = QHBoxLayout()
+        check_button = _button("Проверить обновления", "refresh")
+        check_button.clicked.connect(lambda: self.check_app_update(manual=True))
+        idea_button = _button("Предложить идею", "bolt")
+        idea_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(updates.idea_url())))
+        bug_button = _button("Сообщить об ошибке", "edit")
+        bug_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(updates.bug_url(self._core_version))))
         data_button = _button("Папка с данными", "folder")
         data_button.clicked.connect(lambda: self._open_folder(data_dir()))
-        row = QHBoxLayout()
-        row.addWidget(data_button)
+        for button in (check_button, data_button):
+            row.addWidget(button)
         row.addStretch(1)
         about_layout.addLayout(row)
+        feedback_row = QHBoxLayout()
+        for button in (idea_button, bug_button):
+            feedback_row.addWidget(button)
+        feedback_row.addStretch(1)
+        about_layout.addLayout(feedback_row)
+        about_layout.addWidget(_label(
+            "Идеи и ошибки принимаются на GitHub (нужен бесплатный аккаунт). "
+            "Не вставляйте туда ссылки на свои серверы, ключи и пароли.", "faint", wrap=True))
         layout.addWidget(about)
         layout.addStretch(1)
         return page
@@ -866,6 +914,8 @@ class MainWindow(QMainWindow):
                 self._log("Выключен системный прокси, оставшийся от прошлого запуска")
         except OSError:
             pass
+        if s.check_updates and time.time() - s.last_update_check > 20 * 3600:
+            QTimer.singleShot(4000, self.check_app_update)
         if s.sub_update_on_start and self.store.subscriptions:
             self.update_all_subscriptions(silent=True, then_connect=s.connect_on_start)
         elif s.connect_on_start and self.store.selected() and core.find_binary():
@@ -1374,6 +1424,36 @@ class MainWindow(QMainWindow):
                 raise core.CoreError(describe_error(exc)) from exc
 
         self.tasks.run(job, on_done=done, on_error=failed, on_progress=progress)
+
+    def check_app_update(self, manual: bool = False) -> None:
+        s = self.store.settings
+
+        def done(latest) -> None:
+            s.last_update_check = time.time()
+            self._schedule_save()
+            if latest and updates.is_newer(latest) and (manual or latest != s.skipped_version):
+                self._show_update(latest)
+            elif manual:
+                self.toast.show_message(f"У вас последняя версия Tropa ({APP_VERSION})", "ok")
+
+        def failed(message: str) -> None:
+            if manual:
+                self.toast.show_message(f"Не удалось проверить обновления: {message}", "error")
+
+        self.tasks.run(updates.latest_release, on_done=done, on_error=failed)
+
+    def _show_update(self, version: str) -> None:
+        self._new_version = version
+        self.update_text.setText(f"Вышла Tropa {version} (у вас {APP_VERSION}). "
+                                 "Скачайте установщик — настройки и серверы сохранятся.")
+        self.update_banner.show()
+        if self.tray and not self.isVisible():
+            self.tray.showMessage(APP_NAME, f"Вышла новая версия Tropa {version}", QSystemTrayIcon.Information, 5000)
+
+    def _skip_update(self) -> None:
+        self.store.settings.skipped_version = getattr(self, "_new_version", "") or ""
+        self._schedule_save()
+        self.update_banner.hide()
 
     def check_core_update(self) -> None:
         if self._core_version is None:

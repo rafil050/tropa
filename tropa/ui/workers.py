@@ -32,15 +32,18 @@ class Task(QRunnable):
 
     def run(self) -> None:
         try:
-            result = self.fn(*self.args, **self.kwargs)
-        except Exception as exc:  # noqa: BLE001
-            message = str(exc) or exc.__class__.__name__
-            traceback.print_exc()
-            self.signals.failed.emit(message)
-        else:
-            self.signals.done.emit(result)
-        finally:
-            self.signals.finished.emit()
+            try:
+                result = self.fn(*self.args, **self.kwargs)
+            except Exception as exc:  # noqa: BLE001
+                message = str(exc) or exc.__class__.__name__
+                traceback.print_exc()
+                self.signals.failed.emit(message)
+            else:
+                self.signals.done.emit(result)
+            finally:
+                self.signals.finished.emit()
+        except RuntimeError:
+            pass  # окно уже закрыто, а задача досчиталась — результат никому не нужен
 
 
 class TaskRunner(QObject):

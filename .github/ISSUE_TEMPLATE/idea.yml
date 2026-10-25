@@ -1,0 +1,32 @@
+name: 💡 Предложить улучшение
+description: Идея новой функции или того, что можно сделать удобнее
+title: "Идея: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо, что помогаете сделать Tropa лучше! Все идеи читаются.
+        Перед отправкой загляните в [список задач](https://github.com/rafil050/tropa/issues) — возможно, такую уже предложили; тогда поставьте 👍 под ней.
+  - type: textarea
+    id: idea
+    attributes:
+      label: Что вы предлагаете?
+      description: Опишите идею своими словами.
+      placeholder: Например, «Добавить режим TUN, чтобы через прокси шли игры».
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Зачем это нужно?
+      description: Какую проблему это решит или что станет удобнее.
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: Версия Tropa
+      description: Подставляется автоматически, если открыть форму из программы.
+    validations:
+      required: false

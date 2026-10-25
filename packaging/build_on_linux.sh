@@ -8,6 +8,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 : "${WINPY:?укажите WINPY — папку с python.exe для Windows}"
 : "${WHEELS:?укажите WHEELS — папку с колёсами win_amd64}"
 export WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml="
+VERSION="$(python3 -c "import re;print(re.search(r'APP_VERSION = \"(.+?)\"', open('$ROOT/tropa/__init__.py').read()).group(1))")"
 BUILD="$(mktemp -d)"
 cp -r "$ROOT/main.py" "$ROOT/tropa" "$ROOT/packaging" "$BUILD/"
 find "$BUILD" -name __pycache__ -prune -exec rm -rf {} +
@@ -22,5 +23,5 @@ wine "$WINPY/python.exe" -m PyInstaller --noconfirm --clean --windowed --name Tr
     main.py < /dev/null 2>&1 | cat
 python3 "$ROOT/packaging/fetch_core.py" "$BUILD/dist/Tropa/core" "${XRAY_VERSION:-}"
 mkdir -p "$ROOT/dist"
-makensis -V2 -DSRC_DIR="$BUILD/dist/Tropa" -DOUT_FILE="$ROOT/dist/Tropa-Setup-1.0.0.exe" "$ROOT/packaging/installer.nsi"
-echo "Готово: $ROOT/dist/Tropa-Setup-1.0.0.exe"
+makensis -V2 -DAPP_VERSION="$VERSION" -DSRC_DIR="$BUILD/dist/Tropa" -DOUT_FILE="$ROOT/dist/Tropa-Setup-$VERSION.exe" "$ROOT/packaging/installer.nsi"
+echo "Готово: $ROOT/dist/Tropa-Setup-$VERSION.exe"

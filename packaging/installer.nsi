@@ -10,8 +10,11 @@ Target amd64-unicode  ; программа 64-битная, установщик
 !include "LogicLib.nsh"
 
 !define APP_NAME     "Tropa"
-!define APP_VERSION  "1.0.0"
+!ifndef APP_VERSION
+  !define APP_VERSION "1.1.0"  ; передаётся скриптами сборки из tropa/__init__.py
+!endif
 !define APP_EXE      "Tropa.exe"
+!define APP_URL      "https://github.com/rafil050/tropa"
 !define APP_ID       "Tropa.ProxyClient"
 !define UNINST_KEY   "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}"
 !define INET_KEY     "Software\Microsoft\Windows\CurrentVersion\Internet Settings"
@@ -156,6 +159,8 @@ Section "${APP_NAME}" SecMain
   WriteRegStr HKCU "${UNINST_KEY}" "DisplayName" "${APP_NAME}"
   WriteRegStr HKCU "${UNINST_KEY}" "DisplayVersion" "${APP_VERSION}"
   WriteRegStr HKCU "${UNINST_KEY}" "Publisher" "${APP_NAME}"
+  WriteRegStr HKCU "${UNINST_KEY}" "URLInfoAbout" "${APP_URL}"
+  WriteRegStr HKCU "${UNINST_KEY}" "HelpLink" "${APP_URL}/issues"
   WriteRegStr HKCU "${UNINST_KEY}" "DisplayIcon" "$INSTDIR\${APP_EXE}"
   WriteRegStr HKCU "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
   WriteRegStr HKCU "${UNINST_KEY}" "UninstallString" '"$INSTDIR\Uninstall.exe"'

@@ -30,11 +30,12 @@ if not defined MAKENSIS (
     echo Установите NSIS: https://nsis.sourceforge.io/Download и запустите скрипт снова.
     goto :fail
 )
-%MAKENSIS% packaging\installer.nsi
+for /f %%v in ('".venv\Scripts\python.exe" -c "from tropa import APP_VERSION; print(APP_VERSION)"') do set "TROPA_VERSION=%%v"
+%MAKENSIS% /DAPP_VERSION=%TROPA_VERSION% packaging\installer.nsi
 if errorlevel 1 goto :fail
 
 echo.
-echo Готово: dist\Tropa-Setup-1.0.0.exe
+echo Готово: dist\Tropa-Setup-%TROPA_VERSION%.exe
 pause
 exit /b 0
 
