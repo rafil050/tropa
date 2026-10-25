@@ -15,10 +15,13 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
+    env:
+      PYTHONUTF8: "1"          # русский текст в выводе скриптов и тестов
+      PYTHONIOENCODING: utf-8
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -60,7 +63,7 @@ jobs:
           & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" /DAPP_VERSION=$env:VERSION packaging\installer.nsi
           if ($LASTEXITCODE -ne 0) { throw "makensis завершился с ошибкой" }
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: Tropa-Setup-${{ env.VERSION }}
           path: dist/Tropa-Setup-*.exe

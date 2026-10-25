@@ -26,6 +26,12 @@ def get(url: str) -> bytes:
 
 
 def main() -> int:
+    # консоль Windows в CI работает в cp1252 — без этого русский текст в выводе роняет скрипт
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     target = Path(sys.argv[1] if len(sys.argv) > 1 else "dist/Tropa/core")
     version = sys.argv[2] if len(sys.argv) > 2 else ""
     base = (f"https://github.com/{REPO}/releases/download/v{version.lstrip('v')}/" if version
