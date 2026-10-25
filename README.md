@@ -59,8 +59,8 @@ Tropa — приложение для Windows, которое подключае
 - **`packaging\build_installer.bat`** — полный установщик `dist\Tropa-Setup-<версия>.exe`: сборка Tropa.exe,
   скачивание ядра Xray с проверкой SHA-256 и упаковка в NSIS (нужны Python и
   [NSIS](https://nsis.sourceforge.io/Download)).
-- **GitHub Actions** (`.github/workflows/build.yml`) — каждая отправка в `main` собирает установщик на Windows
-  и прогоняет тесты с настоящим ядром Xray; метка `vX.Y.Z` (совпадающая с версией в `tropa/__init__.py`)
+- **GitHub Actions** (`.github/workflows/build.yml`) — каждая отправка в `main` собирает Tropa.exe на Windows,
+  прогоняет тесты с настоящим ядром Xray и пакует установщик (NSIS на Linux); метка `vX.Y.Z` (совпадающая с версией в `tropa/__init__.py`)
   дополнительно публикует релиз с установщиком.
 - **`packaging/build_on_linux.sh`** — сборка на Linux через Wine.
 

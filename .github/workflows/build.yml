@@ -57,12 +57,32 @@ jobs:
           TROPA_REALITY_TARGET: www.microsoft.com:443
         run: python tests\run_ci.py
 
+      - uses: actions/upload-artifact@v5
+        with:
+          name: tropa-dist
+          path: dist/Tropa
+          retention-days: 7
+
+  # Установщик пакуем на Linux: NSIS из Ubuntu умеет 64-битные установщики (Windows-сборка NSIS — нет).
+  installer:
+    needs: windows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: tropa-dist
+          path: dist/Tropa
+
       - name: Установщик (NSIS)
-        shell: pwsh
         run: |
-          choco install nsis -y --no-progress
-          & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" /DAPP_VERSION=$env:VERSION packaging\installer.nsi
-          if ($LASTEXITCODE -ne 0) { throw "makensis завершился с ошибкой" }
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq nsis > /dev/null
+          VERSION=$(python3 -c "from tropa import APP_VERSION; print(APP_VERSION)")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          makensis -V2 -DAPP_VERSION="$VERSION" -DSRC_DIR="$PWD/dist/Tropa" \
+            -DOUT_FILE="$PWD/dist/Tropa-Setup-$VERSION.exe" packaging/installer.nsi
 
       - uses: actions/upload-artifact@v5
         with:
@@ -71,12 +91,10 @@ jobs:
 
       - name: Релиз
         if: startsWith(github.ref, 'refs/tags/v')
-        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $file = "dist\Tropa-Setup-$env:VERSION.exe"
-          $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
-          $notes = (Get-Content packaging\release_notes.md -Raw -Encoding utf8).Replace("{VERSION}", $env:VERSION).Replace("{SHA256}", $hash)
-          Set-Content -Path notes.md -Value $notes -Encoding utf8
-          gh release create $env:GITHUB_REF_NAME $file --title "Tropa $env:VERSION" --notes-file notes.md
+          FILE="dist/Tropa-Setup-$VERSION.exe"
+          HASH=$(sha256sum "$FILE" | cut -d' ' -f1)
+          sed -e "s/{VERSION}/$VERSION/g" -e "s/{SHA256}/$HASH/g" packaging/release_notes.md > notes.md
+          gh release create "$GITHUB_REF_NAME" "$FILE" --title "Tropa $VERSION" --notes-file notes.md
