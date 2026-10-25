@@ -165,7 +165,10 @@ class EndToEndTests(unittest.TestCase):
     def _server(self, name: str, inbound: dict) -> int:
         port = free_ports(1, 42000 + hash(name) % 5000)[0]
         config = {"log": {"loglevel": "warning"}, "inbounds": [{"port": port, "listen": "127.0.0.1", **inbound}],
-                  "outbounds": [{"protocol": "freedom"}]}
+                  # Xray по умолчанию запрещает серверам VLESS/VMess/Trojan/SS/Hysteria ходить на локальные
+                  # адреса (защита от доступа к внутренней сети). Тестовая «цель» живёт на 127.0.0.1 — разрешаем.
+                  "outbounds": [{"protocol": "freedom",
+                                 "settings": {"finalRules": [{"action": "allow", "ip": ["127.0.0.0/8"]}]}}]}
         self._run(config, f"server-{name}")
         if inbound["protocol"] != "hysteria":
             self.assertTrue(wait_port(port, 8), f"сервер {name} не запустился")
