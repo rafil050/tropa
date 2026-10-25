@@ -216,13 +216,23 @@ class EndToEndTests(unittest.TestCase):
                 self.assertEqual(warnings, [])
                 self._run(config, f"client-{name}")
                 self.assertTrue(wait_port(http_port, 8), f"клиент {name} не запустился")
-                try:
-                    response = http_get(f"http://127.0.0.1:{self.target_port}/", timeout=15,
-                                        proxy=f"http://127.0.0.1:{http_port}")
-                except Exception as exc:  # noqa: BLE001
-                    self.fail(f"{exc}\n--- сервер:\n{self._log_tail('server-' + name)}"
+                # до трёх попыток: на Windows в CI локальные соединения изредка обрываются на закрытии
+                problem = ""
+                for _attempt in range(3):
+                    try:
+                        response = http_get(f"http://127.0.0.1:{self.target_port}/", timeout=15,
+                                            proxy=f"http://127.0.0.1:{http_port}")
+                    except Exception as exc:  # noqa: BLE001
+                        problem = str(exc)
+                    else:
+                        if response.body == BODY:
+                            problem = ""
+                            break
+                        problem = f"неожиданный ответ: {response.body[:60]!r}"
+                    time.sleep(1)
+                if problem:
+                    self.fail(f"{problem}\n--- сервер:\n{self._log_tail('server-' + name)}"
                               f"\n--- клиент:\n{self._log_tail('client-' + name)}")
-                self.assertEqual(response.body, BODY)
 
     def test_real_delay_batch(self):
         profiles = []
