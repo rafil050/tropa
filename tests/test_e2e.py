@@ -164,7 +164,7 @@ class EndToEndTests(unittest.TestCase):
 
     def _server(self, name: str, inbound: dict) -> int:
         port = free_ports(1, 42000 + hash(name) % 5000)[0]
-        config = {"log": {"loglevel": "warning"}, "inbounds": [{"port": port, "listen": "127.0.0.1", **inbound}],
+        config = {"log": {"loglevel": "info"}, "inbounds": [{"port": port, "listen": "127.0.0.1", **inbound}],
                   # Xray по умолчанию запрещает серверам VLESS/VMess/Trojan/SS/Hysteria ходить на локальные
                   # адреса (защита от доступа к внутренней сети). Тестовая «цель» живёт на 127.0.0.1 — разрешаем.
                   "outbounds": [{"protocol": "freedom",
@@ -176,19 +176,35 @@ class EndToEndTests(unittest.TestCase):
             time.sleep(1.0)
         return port
 
+    @classmethod
+    def _log_tail(cls, name: str, limit: int = 6) -> str:
+        """Строки логов Xray, похожие на причину сбоя, — чтобы она была видна прямо в отчёте."""
+        try:
+            lines = (cls.tmp / f"{name}.log").read_text(errors="replace").splitlines()
+        except OSError:
+            return "(лога нет)"
+        keys = ("fail", "error", "reject", "reality", "hysteria", "quic", "tls", "invalid", "timeout")
+        picked = [line[-220:] for line in lines if any(k in line.lower() for k in keys)]
+        return "\n".join((picked or lines)[-limit:]) or "(лог пуст)"
+
     def test_connect_every_protocol(self):
         for name, inbound, link_for in self.cases:
             with self.subTest(protocol=name):
                 server_port = self._server(name, inbound)
                 profile = parse_link(link_for(server_port))
                 socks_port, http_port = free_ports(2, 47000 + hash(name) % 5000)
-                settings = Settings(socks_port=socks_port, http_port=http_port, routing_mode="global", dns="")
+                settings = Settings(socks_port=socks_port, http_port=http_port, routing_mode="global", dns="",
+                                    log_level="info")
                 config, warnings = build_config(profile, settings, bypass_private=False)
                 self.assertEqual(warnings, [])
                 self._run(config, f"client-{name}")
                 self.assertTrue(wait_port(http_port, 8), f"клиент {name} не запустился")
-                response = http_get(f"http://127.0.0.1:{self.target_port}/", timeout=15,
-                                    proxy=f"http://127.0.0.1:{http_port}")
+                try:
+                    response = http_get(f"http://127.0.0.1:{self.target_port}/", timeout=15,
+                                        proxy=f"http://127.0.0.1:{http_port}")
+                except Exception as exc:  # noqa: BLE001
+                    self.fail(f"{exc}\n--- сервер:\n{self._log_tail('server-' + name)}"
+                              f"\n--- клиент:\n{self._log_tail('client-' + name)}")
                 self.assertEqual(response.body, BODY)
 
     def test_real_delay_batch(self):

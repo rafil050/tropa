@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 def annotate(test, text: str) -> None:
-    tail = "\n".join(text.strip().splitlines()[-12:])
+    tail = "\n".join(text.strip().splitlines()[-22:])
     message = tail.replace("%", "%25").replace("\r", "").replace("\n", "%0A")
     title = str(test).replace(":", " ").replace(",", " ")[:200]
     print(f"::error title={title}::{message}", flush=True)
