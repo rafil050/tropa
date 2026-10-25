@@ -125,6 +125,10 @@ class EndToEndTests(unittest.TestCase):
         """(имя, inbound сервера без порта, функция порт → ссылка)."""
         pcs = cls.pcs
         tls = cls._tls()
+        # REALITY маскируется под настоящий сайт. В CI есть интернет — там берём реальный сайт
+        # (TROPA_REALITY_TARGET=www.microsoft.com:443), иначе локальный TLS-сервер на Python.
+        reality_target = os.environ.get("TROPA_REALITY_TARGET") or f"127.0.0.1:{cls.dummy_tls_port}"
+        reality_sni = reality_target.rsplit(":", 1)[0] if os.environ.get("TROPA_REALITY_TARGET") else "tropa.test"
         return [
             ("vless_tcp", {"protocol": "vless", "settings": {"clients": [{"id": UUID}], "decryption": "none"}},
              lambda p: f"vless://{UUID}@127.0.0.1:{p}?type=tcp&security=none#t"),
@@ -139,9 +143,9 @@ class EndToEndTests(unittest.TestCase):
              lambda p: f"vless://{UUID}@127.0.0.1:{p}?type=xhttp&path=%2Fxh&mode=auto&security=tls&sni=tropa.test&alpn=h2&pcs={pcs}#t"),
             ("vless_reality_vision", {"protocol": "vless", "settings": {"clients": [{"id": UUID, "flow": "xtls-rprx-vision"}], "decryption": "none"},
                                       "streamSettings": {"network": "tcp", "security": "reality", "realitySettings": {
-                                          "target": f"127.0.0.1:{cls.dummy_tls_port}", "serverNames": ["tropa.test"],
+                                          "target": reality_target, "serverNames": [reality_sni],
                                           "privateKey": cls.reality_private, "shortIds": ["ab12"]}}},
-             lambda p: f"vless://{UUID}@127.0.0.1:{p}?type=tcp&security=reality&flow=xtls-rprx-vision&sni=tropa.test"
+             lambda p: f"vless://{UUID}@127.0.0.1:{p}?type=tcp&security=reality&flow=xtls-rprx-vision&sni={reality_sni}"
                        f"&pbk={cls.reality_public}&sid=ab12&fp=chrome#t"),
             ("vmess_tcp", {"protocol": "vmess", "settings": {"clients": [{"id": UUID}]}},
              lambda p: f"vmess://{UUID}@127.0.0.1:{p}?type=tcp&encryption=auto#t"),
@@ -158,8 +162,8 @@ class EndToEndTests(unittest.TestCase):
             ("hysteria2", {"protocol": "hysteria", "settings": {"version": 2, "clients": [{"auth": "hyauth"}]},
                            "streamSettings": {"network": "hysteria", "hysteriaSettings": {"version": 2},
                                               "security": "tls", "tlsSettings": {**tls, "alpn": ["h3"]},
-                                              "finalmask": {"udp": [{"type": "salamander", "settings": {"password": "ob"}}]}}},
-             lambda p: f"hysteria2://hyauth@127.0.0.1:{p}?sni=tropa.test&alpn=h3&pcs={pcs}&obfs=salamander&obfs-password=ob#t"),
+                                              "finalmask": {"udp": [{"type": "salamander", "settings": {"password": "obfspass"}}]}}},
+             lambda p: f"hysteria2://hyauth@127.0.0.1:{p}?sni=tropa.test&alpn=h3&pcs={pcs}&obfs=salamander&obfs-password=obfspass#t"),
         ]
 
     def _server(self, name: str, inbound: dict) -> int:

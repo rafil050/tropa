@@ -231,6 +231,8 @@ def build_outbound(p: Profile, tag: str = "proxy", warnings: list[str] | None = 
         _security(p, stream, warnings)
         udp_masks = []
         if p.obfs == "salamander":
+            if len(p.obfs_password.encode()) < 4:
+                raise ConfigError("пароль обфускации salamander в ссылке короче 4 символов — ядро Xray его не примет")
             udp_masks.append({"type": "salamander", "settings": {"password": p.obfs_password}})
         if p.hop_ports:
             udp_masks.append({

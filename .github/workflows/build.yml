@@ -54,6 +54,7 @@ jobs:
       - name: Тесты с настоящим ядром
         env:
           XRAY_BIN: ${{ github.workspace }}\dist\Tropa\core\xray.exe
+          TROPA_REALITY_TARGET: www.microsoft.com:443
         run: python tests\run_ci.py
 
       - name: Установщик (NSIS)

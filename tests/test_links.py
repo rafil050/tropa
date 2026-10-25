@@ -91,6 +91,11 @@ class ParseTests(unittest.TestCase):
         p = parse_link(SAMPLES["vless_kcp"])
         self.assertEqual((p.address, p.network, p.kcp_seed), ("fd00::1", "kcp", "s33d"))
 
+    def test_short_salamander_password_rejected(self):
+        p = parse_link("hysteria2://auth@hy.example.com:443?sni=hy.example.com&obfs=salamander&obfs-password=ab#t")
+        with self.assertRaises(ConfigError):
+            build_config(p, Settings())
+
     def test_plaintext_rejected_with_clear_error(self):
         for name, link in PLAINTEXT.items():
             with self.subTest(name=name):
