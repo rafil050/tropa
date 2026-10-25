@@ -1,5 +1,7 @@
 # Tropa — клиент для прокси-серверов на ядре Xray
 
+[![Сборка](https://github.com/rafil050/tropa/actions/workflows/build.yml/badge.svg)](https://github.com/rafil050/tropa/actions/workflows/build.yml)
+
 ![Tropa](docs/screenshot.png)
 
 **[📥 Скачать установщик для Windows](https://github.com/rafil050/tropa/releases/latest)** · [💡 Предложить идею](https://github.com/rafil050/tropa/issues/new?template=idea.yml) · [🐞 Сообщить об ошибке](https://github.com/rafil050/tropa/issues/new?template=bug.yml)
@@ -57,7 +59,10 @@ Tropa — приложение для Windows, которое подключае
 - **`packaging\build_installer.bat`** — полный установщик `dist\Tropa-Setup-<версия>.exe`: сборка Tropa.exe,
   скачивание ядра Xray с проверкой SHA-256 и упаковка в NSIS (нужны Python и
   [NSIS](https://nsis.sourceforge.io/Download)).
-- **`packaging/build_on_linux.sh`** — то же на Linux через Wine; так собран выложенный установщик.
+- **GitHub Actions** (`.github/workflows/build.yml`) — каждая отправка в `main` собирает установщик на Windows
+  и прогоняет тесты с настоящим ядром Xray; метка `vX.Y.Z` (совпадающая с версией в `tropa/__init__.py`)
+  дополнительно публикует релиз с установщиком.
+- **`packaging/build_on_linux.sh`** — сборка на Linux через Wine.
 
 Сборка использует PySide6 6.9: версии 6.10+ на Windows требуют системную библиотеку ICU, которая есть
 только начиная с Windows 10 1903.

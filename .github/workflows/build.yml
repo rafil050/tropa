@@ -1,0 +1,78 @@
+name: Сборка
+
+# Каждая отправка в main — сборка и тесты на Windows (готовый установщик лежит в артефактах).
+# Метка вида v1.2.3 — то же самое плюс публикация релиза с установщиком.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Зависимости
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Версия
+        shell: pwsh
+        run: |
+          $v = python -c "from tropa import APP_VERSION; print(APP_VERSION)"
+          "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          if ($env:GITHUB_REF -like "refs/tags/*" -and $env:GITHUB_REF_NAME -ne "v$v") {
+            throw "Метка $env:GITHUB_REF_NAME не совпадает с версией в tropa/__init__.py ($v)"
+          }
+
+      - name: Сборка Tropa.exe
+        run: >
+          pyinstaller --noconfirm --clean --windowed --name Tropa
+          --icon tropa\assets\icon.ico
+          --add-data "tropa\assets;tropa\assets"
+          --version-file packaging\version_info.txt
+          --exclude-module tkinter --exclude-module unittest --exclude-module pydoc
+          main.py
+
+      - name: Ядро Xray (с проверкой SHA-256)
+        run: python packaging\fetch_core.py dist\Tropa\core
+
+      - name: Тесты с настоящим ядром
+        env:
+          XRAY_BIN: ${{ github.workspace }}\dist\Tropa\core\xray.exe
+        run: python -m unittest discover -s tests -v
+
+      - name: Установщик (NSIS)
+        shell: pwsh
+        run: |
+          choco install nsis -y --no-progress
+          & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" /DAPP_VERSION=$env:VERSION packaging\installer.nsi
+          if ($LASTEXITCODE -ne 0) { throw "makensis завершился с ошибкой" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Tropa-Setup-${{ env.VERSION }}
+          path: dist/Tropa-Setup-*.exe
+
+      - name: Релиз
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $file = "dist\Tropa-Setup-$env:VERSION.exe"
+          $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
+          $notes = (Get-Content packaging\release_notes.md -Raw -Encoding utf8).Replace("{VERSION}", $env:VERSION).Replace("{SHA256}", $hash)
+          Set-Content -Path notes.md -Value $notes -Encoding utf8
+          gh release create $env:GITHUB_REF_NAME $file --title "Tropa $env:VERSION" --notes-file notes.md
