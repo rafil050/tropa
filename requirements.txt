@@ -1,0 +1,2 @@
+# 6.10+ на Windows требует системную ICU (только Windows 10 1903+), 6.9 работает на любой Windows 10/11
+PySide6-Essentials>=6.8,<6.10
