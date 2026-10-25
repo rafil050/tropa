@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tropa.core import real_delays  # noqa: E402
 from tropa.links import parse_link  # noqa: E402
 from tropa.models import Settings  # noqa: E402
-from tropa.netutil import free_ports, http_get, wait_port  # noqa: E402
+from tropa.netutil import http_get, port_is_free, wait_port  # noqa: E402
 from tropa.xray_config import build_config  # noqa: E402
 
 XRAY = os.environ.get("XRAY_BIN")
@@ -166,8 +166,21 @@ class EndToEndTests(unittest.TestCase):
              lambda p: f"hysteria2://hyauth@127.0.0.1:{p}?sni=tropa.test&alpn=h3&pcs={pcs}&obfs=salamander&obfs-password=obfspass#t"),
         ]
 
+    _next = 43000
+    _taken: set = set()
+
+    @classmethod
+    def _port(cls) -> int:
+        """Порты выдаём по порядку: серверы стартуют асинхронно, и случайный выбор мог дать
+        двум процессам один порт ещё до того, как первый успел его занять."""
+        while True:
+            cls._next += 1
+            if cls._next not in cls._taken and port_is_free(cls._next):
+                cls._taken.add(cls._next)
+                return cls._next
+
     def _server(self, name: str, inbound: dict) -> int:
-        port = free_ports(1, 42000 + hash(name) % 5000)[0]
+        port = self._port()
         config = {"log": {"loglevel": "info"}, "inbounds": [{"port": port, "listen": "127.0.0.1", **inbound}],
                   # Xray по умолчанию запрещает серверам VLESS/VMess/Trojan/SS/Hysteria ходить на локальные
                   # адреса (защита от доступа к внутренней сети). Тестовая «цель» живёт на 127.0.0.1 — разрешаем.
@@ -196,7 +209,7 @@ class EndToEndTests(unittest.TestCase):
             with self.subTest(protocol=name):
                 server_port = self._server(name, inbound)
                 profile = parse_link(link_for(server_port))
-                socks_port, http_port = free_ports(2, 47000 + hash(name) % 5000)
+                socks_port, http_port = self._port(), self._port()
                 settings = Settings(socks_port=socks_port, http_port=http_port, routing_mode="global", dns="",
                                     log_level="info")
                 config, warnings = build_config(profile, settings, bypass_private=False)
@@ -213,14 +226,17 @@ class EndToEndTests(unittest.TestCase):
 
     def test_real_delay_batch(self):
         profiles = []
+        names = {}
         for name, inbound, link_for in self.cases:
             server_port = self._server(name + "-rd", inbound)
-            profiles.append(parse_link(link_for(server_port)))
+            profile = parse_link(link_for(server_port))
+            names[profile.id] = name
+            profiles.append(profile)
         results = {}
         real_delays(profiles, f"http://127.0.0.1:{self.target_port}/",
                     lambda pid, ms, err: results.__setitem__(pid, (ms, err)), binary=Path(XRAY))
         for profile in profiles:
-            with self.subTest(profile=profile.raw_link[:30]):
+            with self.subTest(protocol=names[profile.id]):
                 ms, err = results[profile.id]
                 self.assertGreater(ms, 0, err)
 
