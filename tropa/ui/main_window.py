@@ -944,12 +944,18 @@ class MainWindow(QMainWindow):
         return s.check_updates and now - s.last_update_check > UPDATE_CHECK_EVERY \
             and now - self._update_check_attempt >= 3600
 
+    def _user_busy(self) -> bool:
+        """Обновление подписки подменяет серверы в списке. Пока открыто меню или диалог (они держат
+        строку списка или сервер) или идёт проверка задержки, откладываем его до следующего тика."""
+        return (self.ping_cancel is not None or QApplication.activePopupWidget() is not None
+                or QApplication.activeModalWidget() is not None)
+
     def _housekeeping(self) -> None:
         """Раз в 15 минут: Tropa часто неделями работает в трее, а подписки и проверка версий
         раньше обновлялись только при запуске."""
         if self._update_check_due():
             self.check_app_update()
-        if self.store.settings.sub_auto_update:
+        if self.store.settings.sub_auto_update and not self._user_busy():
             now = time.time()
             for sub in list(self.store.subscriptions):
                 if update_due(sub, now, self._sub_attempts.get(sub.id, 0.0)):
