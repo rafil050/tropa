@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from dataclasses import asdict, dataclass, field, fields
@@ -19,6 +20,10 @@ PROTOCOL_TITLES = {
 
 # Пинг: None — ещё не проверяли, -1 — тайм-аут/ошибка
 PING_FAILED = -1
+
+
+# поля, которые не влияют на подключение: название, служебные id, задержка и исходный текст ссылки
+_NOT_IDENTITY = {"id", "sub_id", "name", "ping", "raw_link", "raw_config"}
 
 
 def new_id() -> str:
@@ -117,6 +122,20 @@ class Profile:
         """Чем профиль отличается от других — чтобы не плодить дубли при обновлении подписки."""
         return self.raw_link or self.raw_config or f"{self.protocol}|{self.address}|{self.port}|{self.uuid}{self.password}"
 
+    def identity(self) -> str:
+        """Тот же сервер без учёта названия: панели подписок часто пишут в название остаток
+        трафика и дни, и при обновлении выбранный сервер не должен «теряться»."""
+        if self.protocol == "json" and self.raw_config:
+            try:
+                data = json.loads(self.raw_config)
+            except ValueError:
+                return self.key()
+            if isinstance(data, dict):
+                data = {k: v for k, v in data.items() if k not in ("remarks", "name")}
+            return "json|" + json.dumps(data, sort_keys=True, ensure_ascii=False)
+        fields = {k: v for k, v in asdict(self).items() if k not in _NOT_IDENTITY}
+        return json.dumps(fields, sort_keys=True, ensure_ascii=False)
+
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
@@ -170,6 +189,7 @@ class Settings:
     proxy_list: str = "geosite:youtube\ngeosite:instagram\ngeosite:facebook\ngeosite:twitter\ngeosite:discord\ngeosite:openai"
     dns: str = "localhost"
     sub_update_on_start: bool = True
+    sub_auto_update: bool = True  # обновлять в фоне по интервалу провайдера (или раз в сутки)
     sub_user_agent: str = "Tropa/1.0"
     sub_timeout: int = 15
     sub_via_proxy: bool = False
@@ -188,7 +208,11 @@ class Settings:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Settings":
-        return _from_dict(cls, data)
+        settings = _from_dict(cls, data)
+        if "sub_auto_update" not in data and "sub_update_on_start" in data:
+            # настройки от 1.1.x: кто выключил обновление подписок, не получит его и в фоне
+            settings.sub_auto_update = bool(data["sub_update_on_start"])
+        return settings
 
 
 def now() -> float:

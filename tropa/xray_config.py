@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import copy
 import ipaddress
 import json
@@ -179,6 +181,37 @@ def _check_plaintext(p: Profile) -> None:
         raise ConfigError("ядро Xray не разрешает Trojan без TLS к публичному серверу")
 
 
+SS2022_KEY_BYTES = {
+    "2022-blake3-aes-128-gcm": 16,
+    "2022-blake3-aes-256-gcm": 32,
+    "2022-blake3-chacha20-poly1305": 32,
+}
+
+
+def _ss2022_password(method: str, password: str) -> str:
+    """Ключи Shadowsocks 2022 — base64 строго нужной длины (несколько ключей — через двоеточие).
+    Ядро принимает только стандартный base64 с «=» на конце, поэтому ключи без паддинга
+    или в url-safe варианте переводим в стандартный вид, а неверные объясняем понятно."""
+    size = SS2022_KEY_BYTES.get(method)
+    if size is None:
+        return password
+    keys = []
+    for part in password.split(":"):
+        cleaned = re.sub(r"\s+", "", part).replace("-", "+").replace("_", "/")
+        cleaned += "=" * (-len(cleaned) % 4)
+        try:
+            raw = base64.b64decode(cleaned, validate=True)
+        except (binascii.Error, ValueError):
+            raw = b""
+        if len(raw) != size:
+            raise ConfigError(
+                f"неверный ключ Shadowsocks 2022: для шифра {method} нужен ключ base64 длиной {size} байт. "
+                "Попросите у провайдера свежую ссылку"
+            )
+        keys.append(base64.b64encode(raw).decode())
+    return ":".join(keys)
+
+
 def build_outbound(p: Profile, tag: str = "proxy", warnings: list[str] | None = None) -> dict[str, Any]:
     """Исходящее соединение Xray для одного обычного профиля (не JSON)."""
     if warnings is None:
@@ -215,7 +248,8 @@ def build_outbound(p: Profile, tag: str = "proxy", warnings: list[str] | None = 
         outbound = {
             "protocol": "shadowsocks",
             "settings": {"servers": [{
-                "address": p.address, "port": p.port, "method": p.method, "password": p.password,
+                "address": p.address, "port": p.port, "method": p.method,
+                "password": _ss2022_password(p.method, p.password),
             }]},
         }
     elif p.protocol == "socks":

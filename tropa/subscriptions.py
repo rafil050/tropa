@@ -91,6 +91,19 @@ def apply_result(sub: Subscription, result: SubscriptionResult) -> None:
     sub.last_error = ""
 
 
+DEFAULT_UPDATE_HOURS = 24  # если провайдер не прислал profile-update-interval
+RETRY_AFTER_FAILURE = 3600  # после неудачной попытки — не чаще раза в час
+
+
+def update_due(sub: Subscription, now: float, last_attempt: float = 0.0) -> bool:
+    """Пора ли обновить подписку в фоне: по интервалу из заголовка profile-update-interval,
+    а если его нет — раз в сутки. Неудачные попытки повторяются не чаще раза в час."""
+    hours = sub.update_interval_h if sub.update_interval_h > 0 else DEFAULT_UPDATE_HOURS
+    if now - sub.updated_at < max(1, hours) * 3600:
+        return False
+    return now - last_attempt >= RETRY_AFTER_FAILURE
+
+
 def human_bytes(value: int) -> str:
     units = ["Б", "КБ", "МБ", "ГБ", "ТБ"]
     size = float(value)

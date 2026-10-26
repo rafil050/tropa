@@ -509,7 +509,18 @@ def looks_like_subscription(text: str) -> bool:
 
 
 def share_link(profile: Profile) -> str:
-    """Ссылка для копирования. Для импортированных профилей — исходная."""
+    """Ссылка для копирования. Для импортированных профилей — исходная, для серверов
+    из JSON-подписки — их конфиг Xray (его можно вставить обратно в Tropa через Ctrl+V)."""
     if profile.raw_link:
         return profile.raw_link
+    if profile.protocol == "json" and profile.raw_config:
+        return profile.raw_config
     return f"{profile.protocol}://{quote(profile.address)}:{profile.port}#{quote(profile.title())}"
+
+
+def share_links(profiles: list[Profile]) -> str:
+    """Текст для копирования нескольких серверов. Несколько JSON-конфигов объединяем в массив —
+    в таком виде их принимает и Tropa, и другие клиенты на Xray."""
+    if len(profiles) > 1 and all(p.protocol == "json" and p.raw_config for p in profiles):
+        return "[\n" + ",\n".join(p.raw_config for p in profiles) + "\n]"
+    return "\n".join(share_link(p) for p in profiles)

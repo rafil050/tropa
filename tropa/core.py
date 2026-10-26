@@ -168,6 +168,38 @@ def _failed_index(output: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def _core_reason(output: str) -> str:
+    lines = [line for line in output.strip().splitlines() if line.strip()]
+    return lines[-1].strip()[-200:] if lines else "ядро отклонило конфиг"
+
+
+def _accepted(items: list[tuple[Profile, int]], check: Callable[[list[tuple[Profile, int]]], tuple[bool, str]],
+              on_result: Callable[[str, int, str], None], cancel: threading.Event | None) -> list[tuple[Profile, int]]:
+    """Оставляет серверы, которые ядро принимает, остальным сообщает ошибку.
+    Виновника сначала ищем по тегу из ошибки ядра. Если ядро его не называет (например, неверный ключ
+    Shadowsocks 2022 — «failed to create server»), делим пачку пополам, чтобы один сломанный сервер
+    не помечал нерабочими все остальные."""
+    while items:
+        if cancel is not None and cancel.is_set():
+            return []
+        ok, output = check(items)
+        if ok:
+            return items
+        if len(items) == 1:
+            on_result(items[0][0].id, PING_FAILED, _core_reason(output))
+            return []
+        index = _failed_index(output)
+        if index is not None and index < len(items):
+            bad = items[index]
+            on_result(bad[0].id, PING_FAILED, _core_reason(output))
+            items = items[:index] + items[index + 1:]
+            continue
+        middle = len(items) // 2
+        return (_accepted(items[:middle], check, on_result, cancel)
+                + _accepted(items[middle:], check, on_result, cancel))
+    return []
+
+
 def real_delays(profiles: list[Profile], test_url: str, on_result: Callable[[str, int, str], None],
                 cancel: threading.Event | None = None, binary: Path | None = None) -> None:
     """Реальная задержка через само ядро: поднимаем один xray с отдельным HTTP-портом
@@ -186,28 +218,20 @@ def real_delays(profiles: list[Profile], test_url: str, on_result: Callable[[str
 
         with tempfile.TemporaryDirectory(prefix="tropa-test-") as tmp:
             config_path = Path(tmp) / "test.json"
-            # убираем профили, которые ядро не принимает, по одному — по тегу из ошибки
-            for _attempt in range(len(items) + 1):
-                config, failed = build_test_config(items)
-                for profile_id, error in failed.items():
-                    on_result(profile_id, PING_FAILED, error)
-                items = [(p, port) for p, port in items if p.id not in failed]
-                if not items:
-                    break
-                config_path.write_text(json.dumps(config), "utf-8")
-                check = run_hidden([str(binary), "run", "-test", "-c", str(config_path)],
-                                   capture_output=True, text=True, timeout=60, env=env)
-                if check.returncode == 0:
-                    break
-                output = check.stdout + check.stderr
-                index = _failed_index(output)
-                if index is None or index >= len(items):
-                    for p, _ in items:
-                        on_result(p.id, PING_FAILED, "ядро отклонило конфиг")
-                    items = []
-                    break
-                bad = items.pop(index)
-                on_result(bad[0].id, PING_FAILED, output.strip().splitlines()[-1][-200:])
+            # профили, для которых Tropa сама не может собрать конфиг (понятная причина уже есть)
+            _config, failed = build_test_config(items)
+            for profile_id, error in failed.items():
+                on_result(profile_id, PING_FAILED, error)
+            items = [(p, port) for p, port in items if p.id not in failed]
+
+            def check(subset: list[tuple[Profile, int]]) -> tuple[bool, str]:
+                # конфиг собирается заново из subset — тег pN всегда указывает на subset[N]
+                config_path.write_text(json.dumps(build_test_config(subset)[0]), "utf-8")
+                proc = run_hidden([str(binary), "run", "-test", "-c", str(config_path)],
+                                  capture_output=True, text=True, timeout=60, env=env)
+                return proc.returncode == 0, proc.stdout + proc.stderr
+
+            items = _accepted(items, check, on_result, cancel)
             if not items:
                 continue
 
