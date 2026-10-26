@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from dataclasses import asdict, dataclass, field, fields
@@ -19,6 +20,10 @@ PROTOCOL_TITLES = {
 
 # Пинг: None — ещё не проверяли, -1 — тайм-аут/ошибка
 PING_FAILED = -1
+
+
+# поля, которые не влияют на подключение: название, служебные id, задержка и исходный текст ссылки
+_NOT_IDENTITY = {"id", "sub_id", "name", "ping", "raw_link", "raw_config"}
 
 
 def new_id() -> str:
@@ -116,6 +121,20 @@ class Profile:
     def key(self) -> str:
         """Чем профиль отличается от других — чтобы не плодить дубли при обновлении подписки."""
         return self.raw_link or self.raw_config or f"{self.protocol}|{self.address}|{self.port}|{self.uuid}{self.password}"
+
+    def identity(self) -> str:
+        """Тот же сервер без учёта названия: панели подписок часто пишут в название остаток
+        трафика и дни, и при обновлении выбранный сервер не должен «теряться»."""
+        if self.protocol == "json" and self.raw_config:
+            try:
+                data = json.loads(self.raw_config)
+            except ValueError:
+                return self.key()
+            if isinstance(data, dict):
+                data = {k: v for k, v in data.items() if k not in ("remarks", "name")}
+            return "json|" + json.dumps(data, sort_keys=True, ensure_ascii=False)
+        fields = {k: v for k, v in asdict(self).items() if k not in _NOT_IDENTITY}
+        return json.dumps(fields, sort_keys=True, ensure_ascii=False)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

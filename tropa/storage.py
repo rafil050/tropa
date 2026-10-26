@@ -93,7 +93,7 @@ class Store:
 
     def replace_subscription_profiles(self, sub_id: str, fresh: list[Profile]) -> None:
         """Обновляет серверы подписки, сохраняя id (и выбор) у тех, что не изменились."""
-        old = {p.key(): p for p in self.profiles if p.sub_id == sub_id}
+        old = [p for p in self.profiles if p.sub_id == sub_id]
         merged: list[Profile] = []
         seen: set[str] = set()
         for p in fresh:
@@ -101,12 +101,30 @@ class Store:
             if key in seen:
                 continue
             seen.add(key)
-            prev = old.get(key)
-            if prev is not None:
-                p.id = prev.id
-                p.ping = prev.ping
             p.sub_id = sub_id
             merged.append(p)
+
+        # сначала точные совпадения, затем тот же сервер под новым названием
+        # (панели пишут в название остаток трафика и дни); каждый старый id достаётся одному серверу
+        matched: dict[int, Profile] = {}
+        claimed: set[str] = set()
+        by_key = {p.key(): p for p in old}
+        for index, p in enumerate(merged):
+            prev = by_key.get(p.key())
+            if prev is not None and prev.id not in claimed:
+                matched[index] = prev
+                claimed.add(prev.id)
+        by_identity: dict[str, list[Profile]] = {}
+        for prev in old:
+            if prev.id not in claimed:
+                by_identity.setdefault(prev.identity(), []).append(prev)
+        for index, p in enumerate(merged):
+            candidates = by_identity.get(p.identity()) if index not in matched else None
+            if candidates:
+                matched[index] = candidates.pop(0)
+        for index, prev in matched.items():
+            merged[index].id = prev.id
+            merged[index].ping = prev.ping
         # сохраняем порядок: подписка встаёт на место своих старых серверов
         result: list[Profile] = []
         inserted = False
