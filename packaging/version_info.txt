@@ -1,8 +1,8 @@
 # Сведения о файле Tropa.exe (вкладка «Подробно» в свойствах файла). При выпуске версии обновите номера здесь и в tropa/__init__.py
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 1, 0, 0),
-    prodvers=(1, 1, 0, 0),
+    filevers=(1, 1, 1, 0),
+    prodvers=(1, 1, 1, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -15,11 +15,11 @@ VSVersionInfo(
       StringTable('041904B0', [
         StringStruct('CompanyName', 'Tropa'),
         StringStruct('FileDescription', 'Tropa — клиент для прокси-серверов'),
-        StringStruct('FileVersion', '1.1.0'),
+        StringStruct('FileVersion', '1.1.1'),
         StringStruct('InternalName', 'Tropa'),
         StringStruct('OriginalFilename', 'Tropa.exe'),
         StringStruct('ProductName', 'Tropa'),
-        StringStruct('ProductVersion', '1.1.0'),
+        StringStruct('ProductVersion', '1.1.1'),
       ])
     ]),
     VarFileInfo([VarStruct('Translation', [0x0419, 1200])])

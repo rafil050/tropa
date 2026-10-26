@@ -11,7 +11,7 @@ Target amd64-unicode  ; программа 64-битная, установщик
 
 !define APP_NAME     "Tropa"
 !ifndef APP_VERSION
-  !define APP_VERSION "1.1.0"  ; передаётся скриптами сборки из tropa/__init__.py
+  !define APP_VERSION "1.1.1"  ; передаётся скриптами сборки из tropa/__init__.py
 !endif
 !define APP_EXE      "Tropa.exe"
 !define APP_URL      "https://github.com/rafil050/tropa"
