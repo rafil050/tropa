@@ -5,6 +5,7 @@ from __future__ import annotations
 import getpass
 import os
 import sys
+import time
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QIcon
@@ -35,6 +36,23 @@ def _notify_running_instance(command: bytes = b"show") -> bool:
     return False
 
 
+def _become_first_instance(lock: winutil.InstanceLock) -> bool:
+    """True — эта копия будет работать. False — Tropa уже запущена, ей передана команда «показать окно»."""
+    if lock.handle is not None and lock.owned:
+        return True  # Windows: мьютекс наш, значит других копий точно нет
+    if lock.owned:
+        return not _notify_running_instance()  # не Windows: только проверка через сокет
+    # Другая копия есть, но она могла ещё не успеть запустить сервер (идёт загрузка)
+    # или как раз закрывается. Ждём, пока она либо ответит, либо освободит мьютекс.
+    deadline = time.monotonic() + 15
+    while time.monotonic() < deadline:
+        if _notify_running_instance():
+            return False
+        if lock.wait(500):
+            return True
+    return False
+
+
 def run() -> int:
     minimized = "--minimized" in sys.argv
     winutil.set_app_user_model_id(APP_ID)
@@ -48,11 +66,13 @@ def run() -> int:
         # используется установщиком: аккуратно закрыть запущенную Tropa (с выключением системного прокси)
         _notify_running_instance(b"quit")
         return 0
-    if _notify_running_instance():
+    lock = winutil.InstanceLock(_instance_name())  # живёт до конца run(), то есть всё время работы
+    if not _become_first_instance(lock):
         return 0
     server = QLocalServer()
     QLocalServer.removeServer(_instance_name())
-    server.listen(_instance_name())
+    if not server.listen(_instance_name()):
+        print(f"Tropa: не удалось открыть канал для второй копии: {server.errorString()}", file=sys.stderr)
 
     font = QFont()
     font.setFamilies(theme.FONT_FAMILIES)

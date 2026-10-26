@@ -126,6 +126,48 @@ def set_autostart(enabled: bool, name: str = "Tropa") -> None:
                 pass
 
 
+# ------------------------------------------------------------------ одна копия программы
+
+class InstanceLock:
+    """Именованный мьютекс Windows: «я — первая копия Tropa».
+
+    Проверка через QLocalServer сама по себе не атомарна: пока первая копия грузится
+    (несколько секунд), вторая не находит её сервер и тоже открывает окно и значок в трее.
+    Мьютекс создаётся ядром Windows атомарно, поэтому двух владельцев быть не может.
+    На других системах замок всегда «свободен» — там работает только проверка через сокет."""
+
+    _WAIT_OBJECT_0 = 0x00000000
+    _WAIT_ABANDONED = 0x00000080
+    _ERROR_ALREADY_EXISTS = 183
+
+    def __init__(self, name: str):
+        self.handle = None
+        self.owned = not IS_WINDOWS
+        if not IS_WINDOWS:
+            return
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateMutexW.restype = wintypes.HANDLE
+        kernel32.CreateMutexW.argtypes = (wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR)
+        kernel32.WaitForSingleObject.restype = wintypes.DWORD
+        kernel32.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+        self._kernel32 = kernel32
+        handle = kernel32.CreateMutexW(None, True, f"Local\\{name}")
+        error = ctypes.get_last_error()
+        if not handle:  # мьютекс создать не удалось — не мешаем запуску, остаётся проверка через сокет
+            self.owned = True
+            return
+        self.handle = handle  # держим до конца работы: Windows освободит мьютекс при выходе процесса
+        self.owned = error != self._ERROR_ALREADY_EXISTS
+
+    def wait(self, timeout_ms: int) -> bool:
+        """Ждём, не освободит ли мьютекс закрывающаяся копия. True — теперь он наш."""
+        if self.owned or self.handle is None:
+            return True
+        result = self._kernel32.WaitForSingleObject(self.handle, timeout_ms)
+        self.owned = result in (self._WAIT_OBJECT_0, self._WAIT_ABANDONED)
+        return self.owned
+
+
 # ------------------------------------------------------------------ дочерние процессы
 
 class _KillOnCloseJob:
