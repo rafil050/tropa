@@ -17,12 +17,12 @@ from PySide6.QtWidgets import (
 )
 
 from .. import APP_NAME, APP_VERSION, core, updates, winutil
-from ..links import looks_like_subscription, parse_many, share_link
+from ..links import looks_like_subscription, parse_many, share_link, share_links
 from ..models import PING_FAILED, ROUTING_MODES, Profile, Subscription
 from ..netutil import describe_error, tcp_ping, url_delay
 from ..paths import IS_WINDOWS, data_dir, resource_path
 from ..storage import Store
-from ..subscriptions import SubscriptionError, apply_result, fetch, human_bytes
+from ..subscriptions import SubscriptionError, apply_result, fetch, human_bytes, update_due
 from ..xray_config import ConfigError, build_config
 from . import theme as t
 from .controller import ConnectionController
@@ -91,6 +91,10 @@ def _ago(timestamp: float) -> str:
     return f"обновлена {time.strftime('%d.%m.%Y', time.localtime(timestamp))}"
 
 
+HOUSEKEEPING_INTERVAL_MS = 15 * 60 * 1000
+UPDATE_CHECK_EVERY = 20 * 3600
+
+
 class MainWindow(QMainWindow):
     def __init__(self, store: Store):
         super().__init__()
@@ -103,6 +107,8 @@ class MainWindow(QMainWindow):
         self._quitting = False
         self._core_version: str | None = None
         self._new_version: str | None = None
+        self._sub_attempts: dict[str, float] = {}  # id подписки → время последней попытки обновления
+        self._update_check_attempt = 0.0
 
         self.setWindowTitle(APP_NAME)
         self.setWindowIcon(QIcon(str(resource_path("icon.svg"))))
@@ -115,6 +121,9 @@ class MainWindow(QMainWindow):
         self.uptime_timer.timeout.connect(self._update_uptime)
         self.save_timer = QTimer(self, singleShot=True, interval=400)
         self.save_timer.timeout.connect(self._save)
+        # фоновые дела, пока Tropa работает в трее: обновление подписок и проверка новых версий
+        self.housekeeping_timer = QTimer(self, interval=HOUSEKEEPING_INTERVAL_MS)
+        self.housekeeping_timer.timeout.connect(self._housekeeping)
 
         self._build_ui()
         self._build_tray()
@@ -127,6 +136,7 @@ class MainWindow(QMainWindow):
         self.refresh_all()
         self._refresh_core_status()
         QTimer.singleShot(0, self._startup)
+        self.housekeeping_timer.start()
 
     # ================================================================ построение интерфейса
 
@@ -635,6 +645,9 @@ class MainWindow(QMainWindow):
         form = section("Подписки")
         toggle_row(form, "Обновлять при запуске", "", s.sub_update_on_start,
                    lambda v: self._set_setting("sub_update_on_start", v))
+        toggle_row(form, "Обновлять автоматически",
+                   "Пока Tropa работает: как часто просит провайдер, а если он не указал — раз в сутки",
+                   s.sub_auto_update, lambda v: self._set_setting("sub_auto_update", v))
         toggle_row(form, "Загружать через прокси", "Если подписка не открывается напрямую (только при подключении)",
                    s.sub_via_proxy, lambda v: self._set_setting("sub_via_proxy", v))
         self.ua_edit = QLineEdit(s.sub_user_agent)
@@ -829,13 +842,16 @@ class MainWindow(QMainWindow):
         self.group_combo.setCurrentIndex(index if index >= 0 else 0)
         self.group_combo.blockSignals(False)
 
-    def refresh_servers(self, keep_groups: bool = False) -> None:
+    def refresh_servers(self, keep_groups: bool = False, keep_scroll: bool = False) -> None:
         if not keep_groups:
             self._refresh_groups()
         selected_ids = {i.data(ProfileRole).id for i in self.server_list.selectionModel().selectedIndexes()} \
             if self.server_list.selectionModel() else set()
         profiles = self._visible_profiles()
+        scroll = self.server_list.verticalScrollBar().value()
         self.model.set_profiles(profiles)
+        if keep_scroll:  # фоновое обновление подписки не должно сбрасывать прокрутку списка
+            QTimer.singleShot(0, lambda: self.server_list.verticalScrollBar().setValue(scroll))
         for profile_id in selected_ids:
             row = self.model.row_of(profile_id)
             if row >= 0:
@@ -914,12 +930,31 @@ class MainWindow(QMainWindow):
                 self._log("Выключен системный прокси, оставшийся от прошлого запуска")
         except OSError:
             pass
-        if s.check_updates and time.time() - s.last_update_check > 20 * 3600:
+        if self._update_check_due():
             QTimer.singleShot(4000, self.check_app_update)
         if s.sub_update_on_start and self.store.subscriptions:
             self.update_all_subscriptions(silent=True, then_connect=s.connect_on_start)
         elif s.connect_on_start and self.store.selected() and core.find_binary():
             self.connect_selected()
+
+    def _update_check_due(self) -> bool:
+        s = self.store.settings
+        now = time.time()
+        # после неудачной проверки (нет сети) повторяем не чаще раза в час
+        return s.check_updates and now - s.last_update_check > UPDATE_CHECK_EVERY \
+            and now - self._update_check_attempt >= 3600
+
+    def _housekeeping(self) -> None:
+        """Раз в 15 минут: Tropa часто неделями работает в трее, а подписки и проверка версий
+        раньше обновлялись только при запуске."""
+        if self._update_check_due():
+            self.check_app_update()
+        if self.store.settings.sub_auto_update:
+            now = time.time()
+            for sub in list(self.store.subscriptions):
+                if update_due(sub, now, self._sub_attempts.get(sub.id, 0.0)):
+                    self._log(f"Подписка «{sub.title()}»: обновляю по расписанию")
+                    self.update_subscription(sub.id, silent=True)
 
     def toggle_connection(self) -> None:
         if self.ctrl.is_running():
@@ -1055,7 +1090,7 @@ class MainWindow(QMainWindow):
             menu.addAction(t.icon("code"), "Показать конфиг Xray", lambda: self.show_config(p))
         else:
             menu.addAction(t.icon("copy"), f"Скопировать ссылки ({len(selected)})",
-                           lambda: self._copy("\n".join(share_link(x) for x in selected), "Ссылки скопированы"))
+                           lambda: self._copy(share_links(selected), "Ссылки скопированы"))
         menu.addAction(t.icon("bolt"), "Проверить задержку", lambda: self.run_ping("real", selected))
         menu.addSeparator()
         label = "Удалить" if len(selected) == 1 else f"Удалить ({len(selected)})"
@@ -1289,6 +1324,7 @@ class MainWindow(QMainWindow):
         if sub is None:
             return
         s = self.store.settings
+        self._sub_attempts[sub_id] = time.time()
         if not silent:
             self.toast.show_message(f"Обновляю «{sub.title()}»…", "info", 2000)
 
@@ -1306,7 +1342,7 @@ class MainWindow(QMainWindow):
                 index = self.group_combo.findData(sub_id)
                 if index >= 0:
                     self.group_combo.setCurrentIndex(index)
-            self.refresh_servers()
+            self.refresh_servers(keep_scroll=not select_group)
             self.refresh_subscriptions()
             self.refresh_sidebar()
             if not silent:
@@ -1427,6 +1463,7 @@ class MainWindow(QMainWindow):
 
     def check_app_update(self, manual: bool = False) -> None:
         s = self.store.settings
+        self._update_check_attempt = time.time()
 
         def done(latest) -> None:
             s.last_update_check = time.time()

@@ -14,7 +14,7 @@ from samples import JSON_SUB, SAMPLES  # noqa: E402
 
 from tropa.models import Profile, Subscription  # noqa: E402
 from tropa.storage import Store  # noqa: E402
-from tropa.subscriptions import SubscriptionError, apply_result, fetch, human_bytes  # noqa: E402
+from tropa.subscriptions import SubscriptionError, apply_result, fetch, human_bytes, update_due  # noqa: E402
 
 PAYLOADS = {
     "/b64": base64.b64encode("\n".join(SAMPLES.values()).encode()).decode(),
@@ -84,6 +84,46 @@ class SubscriptionTests(unittest.TestCase):
             self.assertEqual(again.selected_id, store.selected_id)
             again.remove_subscription(sub.id)
             self.assertEqual([p.name for p in again.profiles], ["manual"])
+
+    def test_import_selects_added_not_duplicate(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            store = Store(Path(tmp) / "state.json")
+            old = Profile(protocol="socks", address="1.1.1.1", port=1080, name="old")
+            store.add_profiles([old])
+            store.selected_id = ""
+            twin = Profile(protocol="socks", address="1.1.1.1", port=1080, name="twin")
+            fresh = Profile(protocol="socks", address="2.2.2.2", port=1080, name="fresh")
+            self.assertEqual(store.add_profiles([twin, fresh]), 1)
+            self.assertEqual(store.selected().name, "fresh")
+
+
+class AutoUpdateTests(unittest.TestCase):
+    HOUR = 3600
+
+    def test_provider_interval(self):
+        sub = Subscription(url="http://x", updated_at=0, update_interval_h=12)
+        now = 100 * self.HOUR
+        sub.updated_at = now - 11 * self.HOUR
+        self.assertFalse(update_due(sub, now))
+        sub.updated_at = now - 12 * self.HOUR
+        self.assertTrue(update_due(sub, now))
+
+    def test_default_once_a_day(self):
+        sub = Subscription(url="http://x", update_interval_h=0)
+        now = 100 * self.HOUR
+        sub.updated_at = now - 23 * self.HOUR
+        self.assertFalse(update_due(sub, now))
+        sub.updated_at = now - 25 * self.HOUR
+        self.assertTrue(update_due(sub, now))
+        sub.updated_at = 0  # ещё ни разу не обновлялась
+        self.assertTrue(update_due(sub, now))
+
+    def test_failed_attempt_retried_hourly(self):
+        now = 100 * self.HOUR
+        sub = Subscription(url="http://x", updated_at=now - 48 * self.HOUR)
+        self.assertFalse(update_due(sub, now, last_attempt=now - 10 * 60))
+        self.assertTrue(update_due(sub, now, last_attempt=now - self.HOUR))
 
 
 if __name__ == "__main__":

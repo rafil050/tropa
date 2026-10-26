@@ -73,17 +73,18 @@ class Store:
     def add_profiles(self, profiles: list[Profile]) -> int:
         """Добавляет вручную импортированные профили, пропуская точные дубли. Возвращает число добавленных."""
         existing = {p.key() for p in self.profiles if not p.sub_id}
-        added = 0
+        added: list[Profile] = []
         for p in profiles:
             if p.key() in existing:
                 continue
             p.sub_id = ""
             self.profiles.append(p)
             existing.add(p.key())
-            added += 1
+            added.append(p)
+        # выбираем первый действительно добавленный: профиль-дубль в список не попал
         if added and not self.selected():
-            self.selected_id = profiles[0].id
-        return added
+            self.selected_id = added[0].id
+        return len(added)
 
     def remove_profiles(self, ids: set[str]) -> None:
         self.profiles = [p for p in self.profiles if p.id not in ids]

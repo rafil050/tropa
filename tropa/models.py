@@ -170,6 +170,7 @@ class Settings:
     proxy_list: str = "geosite:youtube\ngeosite:instagram\ngeosite:facebook\ngeosite:twitter\ngeosite:discord\ngeosite:openai"
     dns: str = "localhost"
     sub_update_on_start: bool = True
+    sub_auto_update: bool = True  # обновлять в фоне по интервалу провайдера (или раз в сутки)
     sub_user_agent: str = "Tropa/1.0"
     sub_timeout: int = 15
     sub_via_proxy: bool = False

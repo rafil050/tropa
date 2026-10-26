@@ -16,9 +16,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from samples import BAD, JSON_SUB, PBK, PLAINTEXT, SAMPLES, UUID  # noqa: E402
+from samples import BAD, JSON_SUB, PBK, PLAINTEXT, SAMPLES, SS22_KEY, UUID  # noqa: E402
 
-from tropa.links import LinkError, parse_link, parse_many  # noqa: E402
+from tropa.core import _accepted, real_delays  # noqa: E402
+from tropa.links import LinkError, parse_link, parse_many, share_link, share_links  # noqa: E402
+from tropa.models import PING_FAILED, Profile  # noqa: E402
 from tropa.models import Settings  # noqa: E402
 from tropa.xray_config import ConfigError, build_config, build_test_config, parse_rule_list  # noqa: E402
 
@@ -105,6 +107,55 @@ class ParseTests(unittest.TestCase):
         _, failed = build_test_config(items)
         self.assertEqual(len(failed), 2)
 
+    def test_ss2022_keys(self):
+        def password(method: str, key: str) -> str:
+            p = Profile(protocol="shadowsocks", address="ss.example.com", port=443, method=method, password=key)
+            return build_config(p, Settings())[0]["outbounds"][0]["settings"]["servers"][0]["password"]
+
+        method = "2022-blake3-aes-128-gcm"
+        self.assertEqual(password(method, SS22_KEY), SS22_KEY)
+        # без «=» и в url-safe виде ядро ключ не принимает — приводим к стандартному base64
+        self.assertEqual(password(method, SS22_KEY.rstrip("=")), SS22_KEY)
+        self.assertEqual(password(method, f"{SS22_KEY.rstrip('=')}:{SS22_KEY}"), f"{SS22_KEY}:{SS22_KEY}")
+        self.assertEqual(password("aes-256-gcm", "просто пароль"), "просто пароль")
+        for bad_method, bad_key in ((method, "hunter2"), ("2022-blake3-aes-256-gcm", SS22_KEY),
+                                    (method, SS22_KEY + ":abc")):
+            with self.subTest(key=bad_key):
+                with self.assertRaisesRegex(ConfigError, "Shadowsocks 2022"):
+                    password(bad_method, bad_key)
+
+    def test_json_server_copied_as_config(self):
+        profile = parse_many(JSON_SUB)[0][0]
+        again, _ = parse_many(share_link(profile))
+        self.assertEqual(again[0].key(), profile.key())
+        second = parse_many(JSON_SUB)[0][0]
+        both, _ = parse_many(share_links([profile, second]))
+        self.assertEqual(len(both), 2)
+        plain = [parse_link(link) for link in list(SAMPLES.values())[:2]]
+        self.assertEqual(share_links(plain), "\n".join(p.raw_link for p in plain))
+
+    def test_rejected_server_search(self):
+        """Сломанный сервер в пачке не должен помечать нерабочими остальные (логика без ядра)."""
+        items = [(Profile(protocol="socks", name=n), 40000 + i) for i, n in enumerate("abcdefgh")]
+        broken_tagged, broken_silent = {"c"}, {"f", "h"}
+
+        def check(subset):
+            names = [p.name for p, _ in subset]
+            for index, name in enumerate(names):
+                if name in broken_tagged:
+                    return False, f"failed to build outbound config with tag p{index} > invalid"
+            if broken_silent & set(names):
+                return False, "main: failed to create server > bad key"
+            return True, "Configuration OK."
+
+        results = {}
+        accepted = _accepted(items, check, lambda pid, ms, err: results.__setitem__(pid, (ms, err)), None)
+        names = {p.id: p.name for p, _ in items}
+        self.assertEqual([p.name for p, _ in accepted], ["a", "b", "d", "e", "g"])
+        self.assertEqual(sorted(names[pid] for pid in results), ["c", "f", "h"])
+        self.assertTrue(all(ms == PING_FAILED for ms, _ in results.values()))
+        self.assertIn("bad key", results[items[5][0].id][1])
+
     def test_bad_links(self):
         for name, link in BAD.items():
             with self.subTest(name=name):
@@ -150,6 +201,21 @@ class XrayValidationTests(unittest.TestCase):
         self.assertEqual(config["outbounds"][0]["streamSettings"]["sockopt"]["dialerProxy"], "sub-aux1")
         ok, out = xray_test(config)
         self.assertTrue(ok, out)
+
+    def test_real_delay_marks_only_broken_servers(self):
+        """Сервер, который Tropa не может собрать, и сервер, который отклоняет ядро, —
+        в одной пачке с рабочими: «нерабочими» должны стать только они двое."""
+        good = [parse_link(SAMPLES["vless_reality"]), parse_link(SAMPLES["trojan"])]
+        unbuildable = parse_link(list(PLAINTEXT.values())[0])
+        rejected = parse_link(f"vless://{UUID}@x.example.com:443?security=reality&pbk=abc&sni=x.com#bad-pbk")
+        profiles = [unbuildable, good[0], rejected, good[1]]
+        results = {}
+        real_delays(profiles, "http://127.0.0.1:9/", lambda pid, ms, err: results.__setitem__(pid, (ms, err)),
+                    binary=Path(XRAY))
+        self.assertIn("VLESS", results[unbuildable.id][1])
+        self.assertIn("abc", results[rejected.id][1])
+        for p in good:  # до них дошла очередь: просто не ответил несуществующий адрес
+            self.assertEqual(results[p.id], (PING_FAILED, "нет ответа"))
 
     def test_batch_test_config_valid(self):
         items = [(parse_link(link), 30000 + i) for i, link in enumerate(SAMPLES.values())]
