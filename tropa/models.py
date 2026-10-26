@@ -208,7 +208,11 @@ class Settings:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Settings":
-        return _from_dict(cls, data)
+        settings = _from_dict(cls, data)
+        if "sub_auto_update" not in data and "sub_update_on_start" in data:
+            # настройки от 1.1.x: кто выключил обновление подписок, не получит его и в фоне
+            settings.sub_auto_update = bool(data["sub_update_on_start"])
+        return settings
 
 
 def now() -> float:

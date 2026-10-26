@@ -165,6 +165,19 @@ class AutoUpdateTests(unittest.TestCase):
         sub.updated_at = 0  # ещё ни разу не обновлялась
         self.assertTrue(update_due(sub, now))
 
+    def test_upgrade_respects_updates_switched_off(self):
+        """В state.json от 1.1.x нет sub_auto_update: кто выключил «Обновлять при запуске»,
+        не должен после обновления программы получить обновления в фоне."""
+        import json
+        import tempfile
+        cases = (({"sub_update_on_start": False}, False), ({"sub_update_on_start": True}, True), ({}, True),
+                 ({"sub_update_on_start": False, "sub_auto_update": True}, True))
+        for saved, expected in cases:
+            with self.subTest(saved=saved), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "state.json"
+                path.write_text(json.dumps({"version": 1, "settings": saved}), "utf-8")
+                self.assertEqual(Store(path).settings.sub_auto_update, expected)
+
     def test_failed_attempt_retried_hourly(self):
         now = 100 * self.HOUR
         sub = Subscription(url="http://x", updated_at=now - 48 * self.HOUR)
