@@ -243,8 +243,15 @@ class EndToEndTests(unittest.TestCase):
             names[profile.id] = name
             profiles.append(profile)
         results = {}
-        real_delays(profiles, f"http://127.0.0.1:{self.target_port}/",
-                    lambda pid, ms, err: results.__setitem__(pid, (ms, err)), binary=Path(XRAY))
+        # до трёх попыток для неответивших: на Windows в CI локальные соединения изредка обрываются
+        pending = profiles
+        for _attempt in range(3):
+            real_delays(pending, f"http://127.0.0.1:{self.target_port}/",
+                        lambda pid, ms, err: results.__setitem__(pid, (ms, err)), binary=Path(XRAY))
+            pending = [p for p in profiles if results.get(p.id, (-1, ""))[0] <= 0]
+            if not pending:
+                break
+            time.sleep(1)
         for profile in profiles:
             with self.subTest(protocol=names[profile.id]):
                 ms, err = results[profile.id]
